@@ -14,45 +14,47 @@ jobs:
           fetch-depth: 0
 
       - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v1
+        uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v1
+        uses: google-github-actions/setup-gcloud@v2
 
       - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker asia-south1-docker.pkg.dev
+        run: gcloud auth configure-docker asia-south1-docker.pkg.dev --quiet
 
       - name: Build Docker Image
-        # Using 'rishabh-genai-repo' to match your verified Artifact Registry
         run: |
           docker build -t asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/rishabh-genai-repo/genai-app:${{ github.sha }} \
                        -t asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/rishabh-genai-repo/genai-app:latest .
 
       - name: Test Docker Image
-        # Health check: Ensures the app boots before we attempt to deploy it
         run: |
           docker run --rm -e GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}" \
             asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/rishabh-genai-repo/genai-app:${{ github.sha }} \
             python -c "import genai_app; print('App module loaded successfully')"
 
       - name: Push Docker Image to Artifact Registry
-        # These steps were missing in your previous run
         run: |
           docker push asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/rishabh-genai-repo/genai-app:${{ github.sha }}
           docker push asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/rishabh-genai-repo/genai-app:latest
 
       - name: Deploy to Cloud Run
-        # This creates the live service in your Google Cloud console
         run: |
           gcloud run deploy genai-app \
             --image asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/rishabh-genai-repo/genai-app:${{ github.sha }} \
-            --platform managed \
             --region asia-south1 \
             --allow-unauthenticated \
             --port 8000 \
+            --memory 2Gi \
+            --cpu 2 \
+            --timeout 300 \
             --set-env-vars GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+
+      - name: Show Service URL
+        run: |
+          echo "Service deployed to: $(gcloud run services describe genai-app --region asia-south1 --format='value(status.url)')"
 
       - name: Set up Git for Hugging Face
         run: |
